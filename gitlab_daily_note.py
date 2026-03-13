@@ -232,10 +232,13 @@ class GitLabSync:
 
         if output:
             mrs = json.loads(output)
+            if not isinstance(mrs, list):
+                print(f"Unexpected response for recently merged MRs: {str(mrs)[:200]}", file=sys.stderr)
+                return
             # Filter to only those actually merged after since_date
             self.recently_merged = [
                 mr for mr in mrs
-                if mr.get("merged_at") and mr["merged_at"] >= since_iso
+                if isinstance(mr, dict) and mr.get("merged_at") and mr["merged_at"] >= since_iso
             ]
             print(f"Found {len(self.recently_merged)} recently merged MRs", file=sys.stderr)
         else:
@@ -250,12 +253,14 @@ class GitLabSync:
             project_id = mr["project_id"]
             iid = mr["iid"]
             output = self.run_command(
-                ["glab", "api", f"projects/{project_id}/merge_requests/{iid}/discussions"]
+                ["glab", "api", f"projects/{project_id}/merge_requests/{iid}/discussions?per_page=100"]
             )
             if not output:
                 continue
 
             discussions = json.loads(output)
+            if not isinstance(discussions, list):
+                continue
             pending = 0
             answered = 0
             resolved = 0
