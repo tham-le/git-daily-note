@@ -197,23 +197,29 @@ class GitLabSync:
         return True
 
     def fetch_my_mrs(self):
-        """Get your open MRs using API"""
+        """Get your open MRs using API (authored + assigned)"""
         if not self.fetch_user_info():
             return
 
-        output = self.run_command(
-            [
-                "glab",
-                "api",
-                f"merge_requests?author_id={self.user_id}&state=opened&scope=all&per_page=100",
-            ]
-        )
+        mrs_by_id = {}
 
-        if output:
-            self.mrs = json.loads(output)
-            print(f"Found {len(self.mrs)} MRs", file=sys.stderr)
-        else:
-            print("No MRs fetched", file=sys.stderr)
+        for param in [f"author_id={self.user_id}", f"assignee_id={self.user_id}"]:
+            output = self.run_command(
+                [
+                    "glab",
+                    "api",
+                    f"merge_requests?{param}&state=opened&scope=all&per_page=100",
+                ]
+            )
+            if output:
+                mrs = json.loads(output)
+                if isinstance(mrs, list):
+                    for mr in mrs:
+                        if isinstance(mr, dict):
+                            mrs_by_id[mr["id"]] = mr
+
+        self.mrs = list(mrs_by_id.values())
+        print(f"Found {len(self.mrs)} MRs", file=sys.stderr)
 
     def fetch_recently_merged(self, since_date):
         """Fetch MRs merged since a given date"""
