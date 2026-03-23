@@ -923,10 +923,12 @@ class GitLabSync:
                     for mr in repo_groups[repo]:
                         lines.append(self.format_mr_line(mr))
 
-            # 3. Orphan issues (no linked MR in waiting)
+            # 3. Orphan issues (no linked open MR at all)
+            all_mr_urls = {mr["web_url"] for mr in self.mrs}
             orphan_issues = [
                 i for i in active_issues
                 if i["web_url"] not in shown_issue_urls
+                and not any(mr["web_url"] in all_mr_urls for mr in self.issue_to_mrs.get(i["web_url"], []))
             ]
             if orphan_issues:
                 lines.append("")
