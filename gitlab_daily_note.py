@@ -96,6 +96,7 @@ class GitLabSync:
         self.mr_discussions = {}
         self.mr_approvals = {}
         self.issue_to_mrs = defaultdict(list)  # issue web_url -> [mr objects]
+        self.issue_all_mrs = defaultdict(list)  # issue web_url -> all related MRs (inc. merged/closed)
         self.mr_to_issues = defaultdict(list)  # mr web_url -> [issue objects]
         self.team_mrs = []  # MRs from team to review
         self.on_hold_patterns = [p.lower() for p in self.config.get("on_hold_patterns", [])]
@@ -395,8 +396,13 @@ class GitLabSync:
                 continue
 
             related_mrs = json.loads(output)
+            if not isinstance(related_mrs, list):
+                continue
             for related in related_mrs:
+                if not isinstance(related, dict):
+                    continue
                 url = related.get("web_url", "")
+                self.issue_all_mrs[issue["web_url"]].append(related)
                 if url in mr_url_set:
                     mr = mr_by_url[url]
                     self.issue_to_mrs[issue["web_url"]].append(mr)
@@ -934,7 +940,18 @@ class GitLabSync:
                 lines.append("")
                 lines.append("**Issues (no open MR):**")
                 for issue in orphan_issues:
-                    lines.append(self._format_issue_line(issue))
+                    line = self._format_issue_line(issue)
+                    all_mrs = self.issue_all_mrs.get(issue["web_url"], [])
+                    merged = sum(1 for m in all_mrs if m.get("state") == "merged")
+                    closed = sum(1 for m in all_mrs if m.get("state") == "closed")
+                    statuses = []
+                    if merged:
+                        statuses.append(f"{merged} MR merged")
+                    if closed:
+                        statuses.append(f"{closed} MR closed")
+                    if statuses:
+                        line += f" — {', '.join(statuses)}"
+                    lines.append(line)
 
             lines.append("")
 
