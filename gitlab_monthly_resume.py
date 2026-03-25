@@ -6,9 +6,10 @@ Generates a markdown summary of MRs and issues for a given month.
 Requires the `glab` CLI to be installed and authenticated.
 
 Usage:
-    python gitlab_monthly_resume.py                # Previous month
+    python gitlab_monthly_resume.py                  # Current month
+    python gitlab_monthly_resume.py --last           # Previous month
     python gitlab_monthly_resume.py --month 2026-03  # Specific month
-    python gitlab_monthly_resume.py --stdout        # Print to stdout
+    python gitlab_monthly_resume.py --stdout         # Print to stdout
 """
 
 import json
@@ -273,11 +274,17 @@ def main():
     parser = argparse.ArgumentParser(description="Generate monthly GitLab resume")
     parser.add_argument(
         "--month",
-        help="Month to generate (YYYY-MM), defaults to previous month",
+        help="Month to generate (YYYY-MM), defaults to current month",
+    )
+    parser.add_argument(
+        "--last", "--last-month",
+        action="store_true",
+        help="Generate for previous month",
     )
     parser.add_argument("--stdout", action="store_true", help="Print to stdout")
     args = parser.parse_args()
 
+    now = datetime.now(timezone.utc)
     if args.month:
         try:
             dt = datetime.strptime(args.month, "%Y-%m")
@@ -285,12 +292,13 @@ def main():
             print("Invalid format, use YYYY-MM", file=sys.stderr)
             sys.exit(1)
         year, month = dt.year, dt.month
-    else:
-        now = datetime.now(timezone.utc)
+    elif args.last:
         if now.month == 1:
             year, month = now.year - 1, 12
         else:
             year, month = now.year, now.month - 1
+    else:
+        year, month = now.year, now.month
 
     content = generate_resume(year, month)
 

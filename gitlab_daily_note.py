@@ -7,6 +7,7 @@ Requires the `glab` CLI to be installed and authenticated.
 
 Usage:
     python gitlab_daily_note.py              # Generate today's note
+    python gitlab_daily_note.py --keep       # Save a snapshot on first run of the day
     python gitlab_daily_note.py --init       # Create a config file with defaults
     python gitlab_daily_note.py --stdout     # Print to stdout instead of saving
 """
@@ -30,7 +31,6 @@ DEFAULT_CONFIG = {
     "on_hold_patterns": [],
     "on_hold_label": "On Hold",
     "stale_days": 7,
-    "morning_focus_items": 5,
 }
 
 
@@ -73,7 +73,6 @@ def generate_config(config_path=None):
         "on_hold_patterns": "Strings to match in MR/issue paths for 'on hold' items (e.g. ['client-name', 'legacy'])",
         "on_hold_label": "Section heading for on-hold items",
         "stale_days": "Days of inactivity before an MR is flagged for pinging reviewer",
-        "morning_focus_items": "Max items in the morning focus file",
     }
 
     with open(config_path, "w") as f:
@@ -113,11 +112,11 @@ class GitLabSync:
 
         return folder / filename
 
-    def get_morning_focus_path(self, date):
-        """Get the path for the morning focus file"""
+    def get_snapshot_path(self, date):
+        """Get the path for the first-run snapshot"""
         year = date.strftime("%Y")
         month = date.strftime("%m-%b")
-        filename = date.strftime("%Y-%m-%d-morning.md")
+        filename = date.strftime("%Y-%m-%d-snapshot.md")
 
         folder = self.base_dir / year / month
         folder.mkdir(parents=True, exist_ok=True)
@@ -529,7 +528,7 @@ class GitLabSync:
             folder = filepath.parent
             prefix = prev_date.strftime("%Y-%m-%d")
             for f in folder.glob(f"{prefix}*.md"):
-                if "morning" not in f.name:
+                if "snapshot" not in f.name:
                     return f, prev_date
         return None, None
 
@@ -1051,46 +1050,7 @@ class GitLabSync:
         )
         return f"- [ ] [#{issue['iid']}]({issue['web_url']}): {issue['title']}{label_text}"
 
-    def generate_morning_focus(self, date, todos):
-        """Generate a slim morning focus file with top action items"""
-        lines = []
-        lines.append(f"# Morning Focus — {date.strftime('%A, %B %d')}")
-        lines.append("")
-
-        items = []
-
-        # Build failures - highest priority
-        for todo in todos.get("build_failed", []):
-            items.append(("Fix build", todo["target"]["title"], todo["target_url"]))
-
-        # Conflicts
-        conflict_mrs = [mr for mr in self.mrs if mr.get("has_conflicts", False)]
-        for mr in conflict_mrs:
-            items.append(("Resolve conflict", mr["title"], mr["web_url"]))
-
-        # Pending threads
-        for mr in self.mrs:
-            disc = self.mr_discussions.get(mr["web_url"], {})
-            if disc.get("pending", 0) > 0:
-                authors = ", ".join("@" + a for a in sorted(disc["pending_authors"]))
-                items.append(("Reply to " + authors, mr["title"], mr["web_url"]))
-
-        # Ready to merge
-        for mr in self.mrs:
-            if self.get_mr_category(mr) == "ready_to_merge":
-                items.append(("Merge", mr["title"], mr["web_url"]))
-
-        max_items = self.config.get("morning_focus_items", 5)
-        for i, (action, title, url) in enumerate(items[:max_items], 1):
-            lines.append(f"{i}. **{action}:** [{title}]({url})")
-
-        if not items:
-            lines.append("Nothing urgent. Pick up active work.")
-
-        lines.append("")
-        return "\n".join(lines)
-
-    def save_daily_note(self, date=None, morning=True):
+    def save_daily_note(self, date=None, keep=False):
         """Generate and save daily note, preserving existing notes"""
         if date is None:
             date = datetime.now()
@@ -1115,14 +1075,15 @@ class GitLabSync:
 
         print(f"✓ Daily note saved to {filepath}", file=sys.stderr)
 
-        # Generate morning focus
-        if morning:
-            todo_categories = self.categorize_todos()
-            morning_content = self.generate_morning_focus(date, todo_categories)
-            morning_path = self.get_morning_focus_path(date)
-            with open(morning_path, "w") as f:
-                f.write(morning_content)
-            print(f"✓ Morning focus saved to {morning_path}", file=sys.stderr)
+        # Save a snapshot on first run of the day
+        if keep:
+            snapshot_path = self.get_snapshot_path(date)
+            if not snapshot_path.exists():
+                with open(snapshot_path, "w") as f:
+                    f.write(final_content)
+                print(f"✓ Snapshot saved to {snapshot_path}", file=sys.stderr)
+            else:
+                print(f"  Snapshot already exists, skipping", file=sys.stderr)
 
         return filepath
 
@@ -1161,9 +1122,9 @@ if __name__ == "__main__":
         help="Print to stdout instead of saving to file",
     )
     parser.add_argument(
-        "--no-morning",
+        "--keep",
         action="store_true",
-        help="Skip generating the morning focus file",
+        help="Save a snapshot of the first run of the day",
     )
     args = parser.parse_args()
 
@@ -1179,4 +1140,4 @@ if __name__ == "__main__":
         note = sync.generate_daily_note()
         print(note)
     else:
-        filepath = sync.save_daily_note(morning=not args.no_morning)
+        filepath = sync.save_daily_note(keep=args.keep)
